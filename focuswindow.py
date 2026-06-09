@@ -1,14 +1,8 @@
-from PyQt6.QtWidgets import (
-    QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout,
-    QPushButton, QLabel, QLineEdit, QCalendarWidget, QListWidget,
-    QMessageBox, QSystemTrayIcon, QMenu
-)
-from PyQt6.QtCore import Qt, QThread, pyqtSignal, QTimer
-
-# --- ОКНО ФОКУСА (Когда задача принята) ---
+from PyQt6.QtWidgets import QWidget, QVBoxLayout, QHBoxLayout, QPushButton, QLabel
+from PyQt6.QtCore import Qt, pyqtSignal
 
 class FocusWindow(QWidget):
-    """Окно, которое висит поверх остальных во время работы"""
+    # Окно, которое висит поверх остальных во время работы
     finished_signal = pyqtSignal()
     completed_signal = pyqtSignal(str)  # Передает ID/имя задачи для удаления
 

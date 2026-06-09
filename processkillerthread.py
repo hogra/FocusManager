@@ -1,7 +1,7 @@
 import getpass
 import psutil
 from PyQt6.QtCore import QThread
-from mainwindow import WHITELIST
+
 class ProcessKillerThread(QThread):
     # Фоновый поток, который убивает программы не из белого списка
 
@@ -9,6 +9,10 @@ class ProcessKillerThread(QThread):
         super().__init__()
         self.is_running = False
         self.current_user = getpass.getuser()
+        self.whitelist = []
+
+    def set_whitelist(self, whitelist):
+        self.whitelist = [name.lower() for name in whitelist]
 
     def run(self):
         self.is_running = True
@@ -20,7 +24,7 @@ class ProcessKillerThread(QThread):
                     proc_user = proc.info['username']
                     if proc_user and self.current_user in proc_user:
                         proc_name = proc.info['name'].lower()
-                        if proc_name not in WHITELIST:
+                        if proc_name not in self.whitelist:
                             proc.terminate()
                 except (psutil.NoSuchProcess, psutil.AccessDenied, psutil.ZombieProcess, TypeError):
                     pass

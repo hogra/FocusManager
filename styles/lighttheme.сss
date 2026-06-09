@@ -1,0 +1,5 @@
+QWidget { background-color: #f0f0f0; color: #000000; }
+QLineEdit, QListWidget { background-color: #ffffff; color: #000000; border: 1px solid #ccc; }
+QPushButton { background-color: #e0e0e0; color: #000; border: 1px solid #aaa; padding: 5px; border-radius: 3px; }
+QPushButton:hover { background-color: #d0d0d0; }
+QCalendarWidget QAbstractItemView:enabled { background-color: #ffffff; color: #000000; selection-background-color: #ccc; }

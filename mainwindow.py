@@ -3,14 +3,9 @@ import os
 import random
 from focuswindow import *
 from processkillerthread import *
-from PyQt6.QtWidgets import (
-    QMainWindow, QWidget, QVBoxLayout, QHBoxLayout,
-    QPushButton, QLabel, QLineEdit, QListWidget, QMessageBox,
-    QSystemTrayIcon, QMenu, QApplication, QStyle, QDialog, QListWidgetItem, QInputDialog
-)
-from PyQt6.QtCore import Qt
+from PyQt6.QtWidgets import QMainWindow, QWidget, QLineEdit, QMessageBox, QSystemTrayIcon, QMenu, QApplication, QStyle
 from PyQt6.QtGui import QAction
-from customcalendar import *
+from whitelistdialog import *
 
 TASKS_FILE = "data/tasks.json"
 WHITELIST_FILE = "data/whitelist.json"
@@ -24,96 +19,6 @@ DEFAULT_WHITELIST = [
     "searchapp.exe", "searchui.exe", "textinputhost.exe",
     "sihost.exe", "taskmgr.exe", "dwm.exe", "conhost.exe"
 ]
-
-def is_task_active_now(days_left):
-    # Проверяет, доступна ли задача прямо сейчас, исходя из текущего времени
-    current_hour = datetime.now().time().hour
-
-    if days_left <= 1:
-        return True
-    elif days_left == 2:
-        return current_hour < 23
-    elif days_left == 3:
-        return current_hour < 22
-    elif days_left == 4:
-        return current_hour < 21
-    elif days_left == 5:
-        return current_hour < 20
-    return False
-
-class WhitelistDialog(QDialog):
-    def __init__(self, current_whitelist, parent=None):
-        super().__init__(parent)
-        self.setWindowTitle("Редактор белого списка")
-        self.resize(450, 500)
-        self.current_whitelist = set(name.lower() for name in current_whitelist)
-        self.init_ui()
-
-    def init_ui(self):
-        layout = QVBoxLayout()
-
-        lbl_info = QLabel("Выберите процессы, которые НЕ будут закрываться:\n(Отмеченные галочкой продолжат работать)")
-        layout.addWidget(lbl_info)
-
-        self.list_widget = QListWidget()
-        layout.addWidget(self.list_widget)
-
-        import psutil
-        import getpass
-        current_user = getpass.getuser()
-        running_processes = set()
-        for proc in psutil.process_iter(['name', 'username']):
-            try:
-                if proc.info['username'] and current_user in proc.info['username']:
-                    running_processes.add(proc.info['name'].lower())
-            except (psutil.NoSuchProcess, psutil.AccessDenied, TypeError):
-                pass
-
-        all_processes = sorted(list(running_processes | self.current_whitelist))
-
-        for proc_name in all_processes:
-            item = QListWidgetItem(proc_name)
-            item.setFlags(item.flags() | Qt.ItemFlag.ItemIsUserCheckable)
-            if proc_name in self.current_whitelist:
-                item.setCheckState(Qt.CheckState.Checked)
-            else:
-                item.setCheckState(Qt.CheckState.Unchecked)
-            self.list_widget.addItem(item)
-
-        btn_layout = QHBoxLayout()
-
-        btn_add_manual = QPushButton("Добавить вручную")
-        btn_add_manual.clicked.connect(self.add_manual)
-        btn_layout.addWidget(btn_add_manual)
-
-        btn_save = QPushButton("Сохранить")
-        btn_save.setStyleSheet("background-color: #4CAF50; color: white; font-weight: bold;")
-        btn_save.clicked.connect(self.accept)
-        btn_layout.addWidget(btn_save)
-
-        layout.addLayout(btn_layout)
-        self.setLayout(layout)
-
-    def add_manual(self):
-        name, ok = QInputDialog.getText(self, "Добавить процесс", "Введите имя процесса (например, 'telegram.exe'):")
-        if ok and name:
-            name = name.strip().lower()
-            for i in range(self.list_widget.count()):
-                if self.list_widget.item(i).text() == name:
-                    return
-            item = QListWidgetItem(name)
-            item.setFlags(item.flags() | Qt.ItemFlag.ItemIsUserCheckable)
-            item.setCheckState(Qt.CheckState.Checked)
-            self.list_widget.insertItem(0, item)
-
-    def get_whitelist(self):
-        whitelist = []
-        for i in range(self.list_widget.count()):
-            item = self.list_widget.item(i)
-            if item.checkState() == Qt.CheckState.Checked:
-                whitelist.append(item.text())
-        return whitelist
-
 
 class MainWindow(QMainWindow):
     def __init__(self):
@@ -135,13 +40,36 @@ class MainWindow(QMainWindow):
         self.focus_window.completed_signal.connect(self.complete_task)
 
         self.init_tray()
+        self.init_menu()
         self.init_ui()
         self.apply_theme()
         self.update_task_list()
 
+    def init_menu(self):
+        menu_bar = self.menuBar()
+
+        plans_menu = menu_bar.addMenu("Планы")
+
+        action_show_plans = QAction("📋 Планы на сегодня", self)
+        action_show_plans.triggered.connect(self.show_plans)
+        plans_menu.addAction(action_show_plans)
+
+        action_get_task = QAction("🎲 Получить случайную задачу", self)
+        action_get_task.triggered.connect(self.get_random_task)
+        plans_menu.addAction(action_get_task)
+
+        settings_menu = menu_bar.addMenu("Настройки")
+
+        action_whitelist = QAction("Редактор белого списка", self)
+        action_whitelist.triggered.connect(self.open_whitelist_editor)
+        settings_menu.addAction(action_whitelist)
+
+        self.action_theme = QAction("Сменить тему (сейчас Светлая)", self)
+        self.action_theme.triggered.connect(self.toggle_theme)
+        settings_menu.addAction(self.action_theme)
+
     def init_tray(self):
         self.tray_icon = QSystemTrayIcon(self)
-        # Устанавливаем стандартную иконку (чтобы не искать внешние файлы)
         icon = self.style().standardIcon(QStyle.StandardPixmap.SP_ComputerIcon)
         self.tray_icon.setIcon(icon)
 
@@ -160,12 +88,10 @@ class MainWindow(QMainWindow):
         self.tray_icon.show()
 
     def on_tray_activated(self, reason):
-        # Двойной клик по иконке трея разворачивает окно
         if reason == QSystemTrayIcon.ActivationReason.DoubleClick:
             self.showNormal()
 
     def closeEvent(self, event):
-        # Перехватываем закрытие окна: игнорируем его и прячем окно в трей
         event.ignore()
         self.hide()
         self.tray_icon.showMessage(
@@ -188,11 +114,13 @@ class MainWindow(QMainWindow):
         return DEFAULT_WHITELIST
 
     def save_whitelist(self):
+        os.makedirs(os.path.dirname(WHITELIST_FILE), exist_ok=True)
         with open(WHITELIST_FILE, "w", encoding="utf-8") as f:
             json.dump(self.whitelist, f, ensure_ascii=False, indent=4)
         self.killer_thread.set_whitelist(self.whitelist)
 
     def save_tasks(self):
+        os.makedirs(os.path.dirname(TASKS_FILE), exist_ok=True)
         with open(TASKS_FILE, "w", encoding="utf-8") as f:
             json.dump(self.tasks, f, ensure_ascii=False, indent=4)
 
@@ -215,6 +143,9 @@ class MainWindow(QMainWindow):
 
         right_panel = QVBoxLayout()
         self.task_list_widget = QListWidget()
+        # Подключаем клик по задаче для выделения дня в календаре
+        self.task_list_widget.itemClicked.connect(self.on_task_clicked)
+
         right_panel.addWidget(QLabel("Все задачи:"))
         right_panel.addWidget(self.task_list_widget)
 
@@ -222,24 +153,29 @@ class MainWindow(QMainWindow):
         btn_delete.clicked.connect(self.delete_selected_task)
         right_panel.addWidget(btn_delete)
 
-        self.btn_random = QPushButton("🎲 ПОЛУЧИТЬ ЗАДАЧУ")
-        self.btn_random.setStyleSheet(
-            "background-color: #2196F3; color: white; font-weight: bold; font-size: 14px; padding: 15px;")
-        self.btn_random.clicked.connect(self.get_random_task)
-        right_panel.addWidget(self.btn_random)
-
-        self.btn_whitelist = QPushButton("⚙️ Настроить белый список")
-        self.btn_whitelist.clicked.connect(self.open_whitelist_editor)
-        right_panel.addWidget(self.btn_whitelist)
-
-        self.btn_theme = QPushButton("☀️ Светлая тема")
-        self.btn_theme.clicked.connect(self.toggle_theme)
-        right_panel.addWidget(self.btn_theme)
+        self.btn_plans = QPushButton("📋 ПЛАНЫ НА СЕГОДНЯ")
+        self.btn_plans.setStyleSheet(
+            "background-color: #4CAF50; color: white; font-weight: bold; font-size: 14px; padding: 15px;")
+        self.btn_plans.clicked.connect(self.show_plans)
+        right_panel.addWidget(self.btn_plans)
 
         main_layout.addLayout(left_panel, 2)
         main_layout.addLayout(right_panel, 1)
         central_widget.setLayout(main_layout)
         self.setCentralWidget(central_widget)
+
+    def on_task_clicked(self, item):
+        # Находим дату в квадратных скобках [YYYY-MM-DD] в начале строки
+        text = item.text()
+        if text.startswith("[") and "]" in text:
+            date_str = text[1:text.find("]")]
+            qdate = QDate.fromString(date_str, "yyyy-MM-dd")
+            if qdate.isValid():
+                self.calendar.setSelectedDate(qdate)
+
+    def show_plans(self):
+        dialog = PlansDialog(self.tasks, self, self)
+        dialog.exec()
 
     def open_whitelist_editor(self):
         dialog = WhitelistDialog(self.whitelist, self)
@@ -254,13 +190,16 @@ class MainWindow(QMainWindow):
     def apply_theme(self):
         app = QApplication.instance()
         theme_file = "styles/darktheme.сss" if self.is_dark_theme else "styles/lighttheme.сss"
-        with open(theme_file, "r", encoding="utf-8") as f:
-            style_sheet = f.read()
-            app.setStyleSheet(style_sheet)
+
+        if os.path.exists(theme_file):
+            with open(theme_file, "r", encoding="utf-8") as f:
+                style_sheet = f.read()
+                app.setStyleSheet(style_sheet)
+
         if self.is_dark_theme:
-            self.btn_theme.setText("🌙 Темная тема")
+            self.action_theme.setText("Сменить тему (сейчас Темная)")
         else:
-            self.btn_theme.setText("☀️ Светлая тема")
+            self.action_theme.setText("Сменить тему (сейчас Светлая)")
 
     def update_task_list(self):
         self.task_list_widget.clear()
